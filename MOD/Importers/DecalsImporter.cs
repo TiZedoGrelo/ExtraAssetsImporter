@@ -18,6 +18,8 @@ using Unity.Entities;
 using Game.SceneFlow;
 using Colossal.Localization;
 using System.Linq;
+using System.ComponentModel;
+using Colossal.IO.AssetDatabase.VirtualTexturing;
 
 namespace ExtraAssetsImporter.Importers;
 
@@ -217,7 +219,7 @@ internal class DecalsImporter
 		Texture2D texture2D_BaseColorMap_Temp = new(1, 1);
 		if (!texture2D_BaseColorMap_Temp.LoadImage(fileData)) { UnityEngine.Debug.LogError($"[EAI] Failed to Load the BaseColorMap image for the {decalName} decal."); return; }
 
-		Texture2D texture2D_BaseColorMap = new(texture2D_BaseColorMap_Temp.width, texture2D_BaseColorMap_Temp.height, GraphicsFormat.R8G8B8A8_SRGB, texture2D_BaseColorMap_Temp.mipmapCount, TextureCreationFlags.MipChain)
+		Texture2D texture2D_BaseColorMap = new(texture2D_BaseColorMap_Temp.width, texture2D_BaseColorMap_Temp.height, GraphicsFormat.RGBA_BC7_SRGB, texture2D_BaseColorMap_Temp.mipmapCount, TextureCreationFlags.MipChain)
 		{
 			name = $"{decalName}_BaseColorMap"
 		};
@@ -242,7 +244,7 @@ internal class DecalsImporter
 			};
 			if (texture2D_NormalMap_temp.LoadImage(fileData))
 			{
-				Texture2D texture2D_NormalMap = new(texture2D_NormalMap_temp.width, texture2D_NormalMap_temp.height, GraphicsFormat.R8G8B8A8_SRGB, texture2D_NormalMap_temp.mipmapCount, TextureCreationFlags.None)
+				Texture2D texture2D_NormalMap = new(texture2D_NormalMap_temp.width, texture2D_NormalMap_temp.height, GraphicsFormat.RGBA_BC7_SRGB, texture2D_NormalMap_temp.mipmapCount, TextureCreationFlags.None)
 				{
 					name = $"{decalName}_NormalMap"
 				};
@@ -254,7 +256,8 @@ internal class DecalsImporter
 				texture2D_NormalMap.Apply();
                 TextureImporter.Texture textureImporterNormalMap = new($"{decalName}_NormalMap", folderPath + "\\" + "_NormalMap.png", texture2D_NormalMap);
 				textureImporterNormalMap.CompressBC(1, Colossal.AssetPipeline.Native.NativeTextures.BlockCompressionFormat.BC5);
-				decalSurface.AddProperty("_NormalMap", textureImporterNormalMap);
+
+                decalSurface.AddProperty("_NormalMap", textureImporterNormalMap);
             };
 		}
 
@@ -264,7 +267,7 @@ internal class DecalsImporter
 			Texture2D texture2D_MaskMap_temp = new(1, 1);
 			if (texture2D_MaskMap_temp.LoadImage(fileData))
 			{
-				Texture2D texture2D_MaskMap = new(texture2D_MaskMap_temp.width, texture2D_MaskMap_temp.height, GraphicsFormat.R8G8B8A8_SRGB, texture2D_MaskMap_temp.mipmapCount, TextureCreationFlags.None)
+				Texture2D texture2D_MaskMap = new(texture2D_MaskMap_temp.width, texture2D_MaskMap_temp.height, GraphicsFormat.RGBA_BC7_SRGB, texture2D_MaskMap_temp.mipmapCount, TextureCreationFlags.None)
 				{
 					name = $"{decalName}_MaskMap"
 				};
@@ -295,15 +298,24 @@ internal class DecalsImporter
 			}
 		}
 
-        AssetDataPath assetDataPath = AssetDataPath.Create($"Mods/EAI/CustomDecals/{modName}/{catName}/{decalName}", "SurfaceAsset");
-		SurfaceAsset surfaceAsset = new()
+        SurfaceAsset surfaceAsset = new()
 		{
 			guid = Guid.NewGuid(), //DecalRenderPrefab.surfaceAssets.ToArray()[0].guid, //
 			database = AssetDatabase.game //DecalRenderPrefab.surfaceAssets.ToArray()[0].database,
 		};
+		AssetDataPath assetDataPath = AssetDataPath.Create($"Mods/EAI/CustomDecals/{modName}/{catName}/{decalName}", "SurfaceAsset");
 		surfaceAsset.database.AddAsset<SurfaceAsset>(assetDataPath, surfaceAsset.guid);
 		surfaceAsset.SetData(decalSurface);
-		surfaceAsset.Save(force: false, saveTextures: true, vt: false);
+		VirtualTexturingConfig virtualTexturingConfig = EAI.textureStreamingSystem.virtualTexturingConfig; //(VirtualTexturingConfig)ScriptableObject.CreateInstance("VirtualTexturingConfig");
+        Dictionary<Colossal.IO.AssetDatabase.TextureAsset, List<SurfaceAsset>> textureReferencesMap = [];
+
+		foreach (Colossal.IO.AssetDatabase.TextureAsset asset in surfaceAsset.textures.Values)
+		{
+			asset.Save();
+			textureReferencesMap.Add(asset, [surfaceAsset]);
+        }
+        surfaceAsset.Save(force: false, saveTextures: false, vt: true, virtualTexturingConfig: virtualTexturingConfig, textureReferencesMap: textureReferencesMap, tileSize: virtualTexturingConfig.tileSize, nbMidMipLevelsRequested: 2);
+
 
 		Vector4 MeshSize = decalSurface.GetVectorProperty("colossal_MeshSize");
 		Vector4 TextureArea = decalSurface.GetVectorProperty("colossal_TextureArea");
@@ -328,10 +340,8 @@ internal class DecalsImporter
 		renderPrefab.vertexCount = geometryAsset.GetVertexCount(0);
 		renderPrefab.indexCount = 1;
 		renderPrefab.manualVTRequired = false;
-        geometryAsset.Unload();
-        surfaceAsset.Unload();
 
-        DecalProperties decalProperties = renderPrefab.AddComponent<DecalProperties>();
+		DecalProperties decalProperties = renderPrefab.AddComponent<DecalProperties>();
 		decalProperties.m_TextureArea = new(new(TextureArea.x, TextureArea.y), new(TextureArea.z, TextureArea.w));
 		decalProperties.m_LayerMask = (DecalLayers)decalSurface.GetFloatProperty("colossal_DecalLayerMask");
 		decalProperties.m_RendererPriority = (int)(decalSurface.HasProperty("_DrawOrder") ? decalSurface.GetFloatProperty("_DrawOrder") : 0);
@@ -362,6 +372,18 @@ internal class DecalsImporter
 
         decalSurface.Dispose();
         //decalPrefab.AddComponent<CustomDecal>();
+
+		AssetDataPath prefabPath = AssetDataPath.Create($"Mods/EAI/CustomDecals/{modName}/{catName}/{decalName}", decalName);
+		AssetDataPath prefabPath2 = AssetDataPath.Create($"Mods/EAI/CustomDecals/{modName}/{catName}/{decalName}", decalPrefabUI.name);
+
+        PrefabAsset prefabAsset = AssetDatabase.game.AddAsset(prefabPath, decalPrefab);
+        PrefabAsset prefabAsset2 = AssetDatabase.game.AddAsset(prefabPath, decalPrefabUI);
+        prefabAsset.Save();
+
+  //      geometryAsset.Unload();
+		//surfaceAsset.Unload();
+  //      prefabAsset.Unload();
+
 
         ExtraLib.m_PrefabSystem.AddPrefab(decalPrefab);
 

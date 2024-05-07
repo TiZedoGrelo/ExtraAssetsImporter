@@ -1,4 +1,5 @@
 ﻿using Colossal.IO.AssetDatabase;
+using Colossal.IO.AssetDatabase.VirtualTexturing;
 using Colossal.Logging;
 using Colossal.PSI.Environment;
 using Extra.Lib;
@@ -25,7 +26,9 @@ namespace ExtraAssetsImporter
         static internal readonly string ELTGameDataPath = $"{EnvPath.kStreamingDataPath}\\Mods\\EAI";                                                                          
 		internal static Setting m_Setting;
 
-		internal static string ResourcesIcons { get; private set; }
+		internal static TextureStreamingSystem textureStreamingSystem;
+
+        internal static string ResourcesIcons { get; private set; }
 		public void OnLoad(UpdateSystem updateSystem)
 		{
 			Logger.Info(nameof(OnLoad));
@@ -58,6 +61,8 @@ namespace ExtraAssetsImporter
 			ExtraLib.AddOnMainMenu(OnMainMenu);
 
 			updateSystem.UpdateAt<sys>(SystemUpdatePhase.MainLoop);
+
+            textureStreamingSystem = updateSystem.World.GetExistingSystemManaged<TextureStreamingSystem>();
 
 		}
 

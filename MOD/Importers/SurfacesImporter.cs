@@ -198,7 +198,7 @@ internal class SurfacesImporter
 		//newMaterial.SetFloat("_Metallic", 0.5f);
 		//newMaterial.SetFloat("_Smoothness", 0.5f);
 		//newMaterial.SetFloat("colossal_UVScale", 0.5f);
-		newMaterial.SetFloat("_DrawOrder", GetRendererPriorityByCat(catName));
+		if(!newMaterial.HasFloat("_DrawOrder")) newMaterial.SetFloat("_DrawOrder", GetRendererPriorityByCat(catName));
 
 		if (File.Exists(folderPath + "\\surface.json"))
 		{
